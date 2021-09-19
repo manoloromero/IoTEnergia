@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="es">
+	<head>
+		<title>IoT en la energía</title>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" integrity="sha512-xodZBNTC5n17Xt2atTPuE1HxjVMSvLVW9ocqUKLsCC5CXdbqCmblAshOMAS6/keqq/sMZMZ19scR4PsZChSR7A==" crossorigin=""/>
+        <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js" integrity="sha512-XQoYMqMTK8LvdxXYG3nZ448hOEQiglfqkJs1NOQV44cWnUrBc8PkAOcXy20w0vlaXaVUearIOBhiXZ5V3ynxwA==" crossorigin=""></script>
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+		<script src="loc.js"></script>					
+	</head>
+	<body>
+		<div id="mapid" style="width: 1400px; height: 700px;"></div>
+		<script>
+			// *** Configuration ***
+			// Map configuration
+			var mymap = L.map('mapid').setView([39.93, -4.37], 6);
+			var popup = L.popup();
+			// MQTT configuration
+			var hostname = "test.mosquitto.org";
+			var port = 8080;
+			var clientId = "webiot";
+			clientId += new Date().getUTCMilliseconds();;
+			var username = "";
+			var password = "";
+			var subscription = "uc3m2/power/#";
+			// *** Setup ***
+			// Map setup
+			L.tileLayer('https://api.mapbox.com/styles/v1/{id}/tiles/{z}/{x}/{y}?access_token=pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4NXVycTA2emYycXBndHRqcmZ3N3gifQ.rJcFIG214AriISLbB6B5aw', {
+				maxZoom: 18,
+				attribution: 'Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, ' +
+					'Imagery © <a href="https://www.mapbox.com/">Mapbox</a>',
+				id: 'mapbox/streets-v11',
+				tileSize: 512,
+				zoomOffset: -1
+			}).addTo(mymap);
+			console.log(loc);
+			// MQTT setup
+			mqttClient = new Paho.MQTT.Client(hostname, port, clientId);
+			mqttClient.onMessageArrived =  MessageArrived;
+			mqttClient.onConnectionLost = ConnectionLost;
+			Connect();
+			// *** Main code ***
+			mymap.on('click', onMapClick);
+			// *** Functions ***
+			// Map functions
+			function drawMeter(cpostal, id, power) {
+				var ele = loc.find(element => element.codigopostalid == cpostal);
+				if (ele != undefined){
+					console.log(ele);
+					L.circle([ele.lon, ele.lat], 200*power, { color: 'red', fillColor: '#f00', fillOpacity: 0.5
+								}).addTo(mymap).bindPopup(ele.poblacion+' ('+ele.codigopostalid+') '+'Medidor: '+id+' Potencia: '+power+' kW');
+				}
+			}
+			function onMapClick(e) {
+				popup
+					.setLatLng(e.latlng)
+					.setContent("You clicked the map at " + e.latlng.toString())
+					.openOn(mymap);
+				}
+			// MQTT functions
+			function Connect(){
+				mqttClient.connect({
+					onSuccess: Connected,
+					onFailure: ConnectionFailed,
+					keepAliveInterval: 10,
+					userName: username,
+					useSSL: false,
+					password: password	
+				});
+			}
+			function Connected() {
+				console.log("Connected");
+				mqttClient.subscribe(subscription);
+			}
+			function ConnectionFailed(res) {
+				console.log("Connect failed:" + res.errorMessage);
+			}
+			function ConnectionLost(res) {
+				if (res.errorCode != 0) {
+					console.log("Connection lost:" + res.errorMessage);
+					Connect();
+				}
+			}
+			function MessageArrived(message) {
+				console.log(message.destinationName +" : " + message.payloadString);
+				var topicA = message.destinationName.split("/");
+				if (topicA.length == 4){
+					if ( topicA[0] == 'uc3m2' &&  topicA[1] == 'power' && Number.isInteger(Number(topicA[2])) && Number.isInteger(Number(topicA[3])) && Number(message.payloadString) != NaN){
+					console.log('Mensaje válido');
+					var mcp = topicA[2]
+					var mid = topicA[3]
+					drawMeter(mcp, mid, message.payloadString)
+					}
+				}	
+			}
+	</script>
+	</body>
+</html>
